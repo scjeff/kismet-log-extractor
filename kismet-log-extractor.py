@@ -5,12 +5,11 @@
 Kismet ``*.kismet`` files are SQLite databases. This reads them read-only
 and writes one CSV row per observation of the given device:
 
-    python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF"
-    python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF" capture.kismet
-    python3 kismet-log-extractor.py -o timeline.csv "AA:BB:CC:DD:EE:FF" survey/
+    python3 kismet-log-extractor.py capture.kismet "AA:BB:CC:DD:EE:FF"
+    python3 kismet-log-extractor.py -o timeline.csv capture.kismet "AA:BB:CC:DD:EE:FF"
 
-With no log path, every ``*.kismet`` file under the current directory is
-searched. Wi-Fi rows come from logged packets (the transmitter MAC).
+The first argument is one ``*.kismet`` file. Wi-Fi rows come from logged
+packets (the transmitter MAC).
 Bluetooth rows come from Kismet's ``data`` table. Coordinates are the
 survey GPS fix stored on that observation; they are left blank when the
 log has no fix. If a log never stored per-packet history, the device
@@ -69,27 +68,13 @@ def is_sqlite(path: Path) -> bool:
         return False
 
 
-def find_logs(paths: list[str]) -> list[Path]:
-    roots = [Path(p) for p in paths] if paths else [Path(".")]
-    found: list[Path] = []
-    seen: set[Path] = set()
-    missing: list[str] = []
-    for root in roots:
-        if not root.exists():
-            missing.append(str(root))
-            continue
-        candidates = [root] if root.is_file() else sorted(root.rglob("*.kismet"))
-        for candidate in candidates:
-            if not candidate.is_file() or candidate.name.startswith("."):
-                continue
-            resolved = candidate.resolve()
-            if resolved in seen or not is_sqlite(candidate):
-                continue
-            seen.add(resolved)
-            found.append(candidate)
-    if missing:
-        raise FileNotFoundError("path not found: " + ", ".join(missing))
-    return found
+def resolve_log(path: str) -> Path:
+    candidate = Path(path)
+    if not candidate.is_file():
+        raise FileNotFoundError(f"Kismet log not found: {path}")
+    if not is_sqlite(candidate):
+        raise ValueError(f"not a Kismet SQLite log: {path}")
+    return candidate
 
 
 def load_json(raw: Any) -> dict[str, Any]:
@@ -572,13 +557,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "mac",
-        help='MAC address to filter, for example "AA:BB:CC:DD:EE:FF"',
+        "log",
+        help="Path to one Kismet *.kismet log file",
     )
     parser.add_argument(
-        "paths",
-        nargs="*",
-        help="Kismet log file or directory. Default: search the current directory.",
+        "mac",
+        help='MAC address to filter, for example "AA:BB:CC:DD:EE:FF"',
     )
     parser.add_argument(
         "-o",
@@ -591,37 +575,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     try:
+        log = resolve_log(args.log)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"kismet-log-extractor: {exc}", file=sys.stderr)
+        return 2
+    try:
         mac = normalize_mac(args.mac)
     except ValueError as exc:
         print(f"kismet-log-extractor: {exc}", file=sys.stderr)
         return 2
+
     try:
-        logs = find_logs(args.paths)
-    except FileNotFoundError as exc:
-        print(f"kismet-log-extractor: {exc}", file=sys.stderr)
-        return 2
-    if not logs:
-        print(
-            "kismet-log-extractor: no *.kismet SQLite logs found.",
-            file=sys.stderr,
-        )
+        rows, note = extract_log(log, mac)
+    except sqlite3.Error as exc:
+        print(f"kismet-log-extractor: skip {log}: {exc}", file=sys.stderr)
         return 1
-
-    collected: list[dict[str, str]] = []
-    failures = 0
-    for path in logs:
-        try:
-            rows, note = extract_log(path, mac)
-        except sqlite3.Error as exc:
-            failures += 1
-            print(f"kismet-log-extractor: skip {path}: {exc}", file=sys.stderr)
-            continue
-        # A directory search hits many logs that never saw this MAC.
-        if rows or args.paths:
-            print(note, file=sys.stderr)
-        collected.extend(rows)
-
-    timeline = dedupe(collected)
+    print(note, file=sys.stderr)
+    timeline = dedupe(rows)
     try:
         write_csv(timeline, args.output)
     except OSError as exc:
@@ -632,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
     destination = args.output or "stdout"
     print(
         f"{mac}: {len(timeline)} observation(s), {with_gps} with GPS, "
-        f"from {len(logs) - failures} log(s) -> {destination}",
+        f"from {log_label(log)} -> {destination}",
         file=sys.stderr,
     )
     if not timeline:

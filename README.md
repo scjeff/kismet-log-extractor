@@ -5,7 +5,7 @@ Pull a timeline for one MAC address out of a [Kismet](https://www.kismetwireless
 Kismet stores a survey in a SQLite file named `*.kismet`. This tool opens those files read-only and writes one CSV row per time that MAC was heard: **time**, **GPS** when the log has a fix, and **signal strength** in dBm.
 
 ```bash
-python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF"
+python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF"
 ```
 
 Python 3.9 or newer. Standard library only. No `pip` packages.
@@ -25,31 +25,26 @@ python3 kismet-log-extractor.py --help
 ## Usage
 
 ```bash
-# Every *.kismet file under the current directory
-python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF"
+# Log file first, then the MAC address
+python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF"
 
-# One log
-python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF" capture.kismet
-
-# A directory of surveys, written to a file
-python3 kismet-log-extractor.py -o timeline.csv "AA:BB:CC:DD:EE:FF" ./surveys/
+# Same order, written to a file
+python3 kismet-log-extractor.py -o timeline.csv mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF"
 ```
 
-The MAC may use colons, hyphens, or plain hex (`AA:BB:CC:DD:EE:FF`, `aa-bb-cc-dd-ee-ff`, `aabbccddeeff`). Matching is case-insensitive.
+The first argument is one `*.kismet` file. The second is the MAC address to keep. The MAC may use colons, hyphens, or plain hex (`AA:BB:CC:DD:EE:FF`, `aa-bb-cc-dd-ee-ff`, `aabbccddeeff`). Matching is case-insensitive.
 
-With no log path, the current directory is searched recursively. Dotfiles and files that are not SQLite databases are skipped, including Kismet’s `kismet_home/.kismet` config directory.
-
-CSV goes to stdout unless you pass `-o`. Progress (which log matched, how many rows, how many have GPS) is printed on stderr, so this still works in a pipeline:
+CSV goes to stdout unless you pass `-o`. Progress (how many rows, how many have GPS) is printed on stderr, so this still works in a pipeline:
 
 ```bash
-python3 kismet-log-extractor.py "AA:BB:CC:DD:EE:FF" capture.kismet > timeline.csv
+python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF" > timeline.csv
 ```
 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | At least one observation was written |
-| 1 | No `*.kismet` log was found, or the MAC is absent from the logs that were |
-| 2 | The MAC or a path argument is invalid, or the output file could not be written |
+| 1 | The MAC is absent from that log, or the log could not be read |
+| 2 | The log path or the MAC is invalid, or the output file could not be written |
 
 ## Output
 
