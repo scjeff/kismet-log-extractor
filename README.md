@@ -25,20 +25,18 @@ python3 kismet-log-extractor.py --help
 ## Usage
 
 ```bash
-# Log file first, then the MAC address
 python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF"
-
-# Same order, written to a file
-python3 kismet-log-extractor.py -o timeline.csv mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF"
 ```
 
 The first argument is one `*.kismet` file. The second is the MAC address to keep. The MAC may use colons, hyphens, or plain hex (`AA:BB:CC:DD:EE:FF`, `aa-bb-cc-dd-ee-ff`, `aabbccddeeff`). Matching is case-insensitive.
 
-CSV goes to stdout unless you pass `-o`. Progress (how many rows, how many have GPS) is printed on stderr, so this still works in a pipeline:
+Each run writes a file in the current directory:
 
-```bash
-python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF" > timeline.csv
+```text
+kismetlogextraction_20260930T173622Z.log
 ```
+
+The timestamp is UTC, `YYYYMMDDTHHMMSSZ`, taken when the script starts writing. The file holds the timeline for that MAC. A second run in the same second is named `kismetlogextraction_<timestamp>_2.log`. Pass `-o other-name.log` to choose a different path. Progress (how many rows, how many have GPS, and the output path) is printed on stderr.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -47,6 +45,8 @@ python3 kismet-log-extractor.py mywirelesslogfile.kismet "AA:BB:CC:DD:EE:FF" > t
 | 2 | The log path or the MAC is invalid, or the output file could not be written |
 
 ## Output
+
+The log is CSV. Columns:
 
 | Column | Meaning |
 | --- | --- |

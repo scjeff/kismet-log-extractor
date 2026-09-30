@@ -6,10 +6,10 @@ Kismet ``*.kismet`` files are SQLite databases. This reads them read-only
 and writes one CSV row per observation of the given device:
 
     python3 kismet-log-extractor.py capture.kismet "AA:BB:CC:DD:EE:FF"
-    python3 kismet-log-extractor.py -o timeline.csv capture.kismet "AA:BB:CC:DD:EE:FF"
 
-The first argument is one ``*.kismet`` file. Wi-Fi rows come from logged
-packets (the transmitter MAC).
+The first argument is one ``*.kismet`` file. Each run writes
+``kismetlogextraction_YYYYMMDDTHHMMSSZ.log`` in the current directory.
+Wi-Fi rows come from logged packets (the transmitter MAC).
 Bluetooth rows come from Kismet's ``data`` table. Coordinates are the
 survey GPS fix stored on that observation; they are left blank when the
 log has no fix. If a log never stored per-packet history, the device
@@ -535,18 +535,22 @@ def dedupe(rows: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     return unique
 
 
-def write_csv(rows: list[dict[str, str]], output: str | None) -> None:
-    if output:
-        handle = open(output, "w", encoding="utf-8", newline="")
-    else:
-        handle = sys.stdout
-    try:
+def default_log_path() -> Path:
+    """kismetlogextraction_YYYYMMDDTHHMMSSZ.log in the current directory."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = Path(f"kismetlogextraction_{stamp}.log")
+    suffix = 2
+    while path.exists():
+        path = Path(f"kismetlogextraction_{stamp}_{suffix}.log")
+        suffix += 1
+    return path
+
+
+def write_csv(rows: list[dict[str, str]], output: str) -> None:
+    with open(output, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
-    finally:
-        if output:
-            handle.close()
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -567,7 +571,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--output",
-        help="CSV file to write. Default: print CSV to stdout.",
+        help=(
+            "Write the timeline here instead of "
+            "kismetlogextraction_<timestamp>.log in the current directory."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -592,14 +599,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(note, file=sys.stderr)
     timeline = dedupe(rows)
+    destination = args.output or str(default_log_path())
     try:
-        write_csv(timeline, args.output)
+        write_csv(timeline, destination)
     except OSError as exc:
         print(f"kismet-log-extractor: cannot write output: {exc}", file=sys.stderr)
         return 1
 
     with_gps = sum(1 for row in timeline if row["latitude"])
-    destination = args.output or "stdout"
     print(
         f"{mac}: {len(timeline)} observation(s), {with_gps} with GPS, "
         f"from {log_label(log)} -> {destination}",
